@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <!-- viewport-fit=cover lets content extend under the notch; safe-area-inset-* then compensates -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- PWA -->
+  <meta name="theme-color" content="#0d0f1a" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+
+  <!-- iOS PWA: enables full-screen install mode -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <!-- black-translucent makes the status bar overlay the app (we compensate with safe-area-inset-top) -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="IELTS詞彙" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+
+  <title>IELTS 單字學習</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #0d0f1a;
+      /* Prevent elastic/bounce scrolling on the body itself */
+      overscroll-behavior: none;
+      /* Prevent iOS font-size inflation */
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+      height: 100%;
+    }
+    #root { min-height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
