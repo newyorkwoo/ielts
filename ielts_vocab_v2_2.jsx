@@ -2079,6 +2079,27 @@ function initSRS(){return Object.fromEntries(WORDS.map(w=>[w.id,{ef:2.5,interval
 function updateSRS(c,score){let{ef,interval,reps}={...c};const q=score===1?2:score===2?4:5;if(q<3){reps=0;interval=1;}else{reps+=1;if(reps===1)interval=1;else if(reps===2)interval=6;else interval=Math.round(interval*ef);}ef=Math.max(1.3,ef+0.1-(5-q)*(0.08+(5-q)*0.02));return{ef,interval,reps,nextReview:Date.now()+interval*86400000,lastScore:score};}
 const shuffle=arr=>[...arr].sort(()=>Math.random()-0.5);
 const getOptions=word=>shuffle([...shuffle(WORDS.filter(w=>w.id!==word.id)).slice(0,3),word]);
+function makeBlank(sentence,word){
+  const esc=word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  let r=sentence.replace(new RegExp(esc,'gi'),'______');
+  if(r!==sentence)return r;
+  // phrasal verbs / inflected forms: match first word with any suffix
+  const first=word.split(/[\s-]/)[0];
+  if(first.length>2){
+    const fe=first.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    r=sentence.replace(new RegExp('\\b'+fe+'\\w*\\b','gi'),'______');
+    if(r!==sentence)return r;
+  }
+  return sentence;
+}
+function highlightWord(sentence,word){
+  const esc=word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const first=word.split(/[\s-]/)[0];
+  const pattern=new RegExp('('+esc+'|\\b'+first.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\w*\\b)','gi');
+  return sentence.split(pattern).map((p,i)=>
+    pattern.test(p)?<span key={i} style={{color:"#f0c040",fontWeight:"900"}}>{p}</span>:<span key={i}>{p}</span>
+  );
+}
 const C={bg:"#0d0f1a",surface:"#141726",card:"#1b1f32",border:"#252a45",borderHi:"#3a4070",gold:"#f0c040",goldDim:"#9a7820",text:"#e8e2d6",textDim:"#7a7a9a",textFaint:"#4a4a6a",green:"#3ddb7e",red:"#f56060",blue:"#5ba8f5",purple:"#a78bfa"};
 const pill=(color,size=11)=>({display:"inline-block",background:color+"22",color,borderRadius:20,padding:"2px 9px",fontSize:size,border:`1px solid ${color}44`,lineHeight:"1.6"});
 const btn=(bg,color="#000")=>({background:bg,color,border:"none",borderRadius:10,padding:"11px 18px",fontSize:14,fontWeight:"700",cursor:"pointer",fontFamily:"Georgia,serif"});
@@ -2186,6 +2207,7 @@ export default function App(){
   const[rSelected,setRSelected]=useState(null);
   const[rStats,setRStats]=useState({correct:0,total:0});
   const[game,setGame]=useState(null);
+  const[gameUnit,setGameUnit]=useState({part:"ALL",lesson:"ALL"});
   const timerRef=useRef(null);
   const [playerXP, setPlayerXP] = useState(()=>{try{return Number(localStorage.getItem("ielts_xp")||"0");}catch{return 0;}});
   const [unlockedAch, setUnlockedAch] = useState(()=>{try{return new Set(JSON.parse(localStorage.getItem("ielts_ach")||"[]"));}catch{return new Set();}});
@@ -2237,7 +2259,18 @@ export default function App(){
   const handleRA=opt=>{const w=reviewQueue[rIdx];setRSelected(opt.id);setRPhase("a");setRStats(p=>({correct:p.correct+(opt.id===w.id?1:0),total:p.total+1}));};
   const handleScore=score=>{const w=reviewQueue[rIdx];setSRS(p=>({...p,[w.id]:updateSRS(p[w.id],score)}));const n=rIdx+1;if(n>=reviewQueue.length)setRPhase("done");else{setRIdx(n);setRPhase("q");}};
 
-  const startGame=useCallback(()=>{clearInterval(timerRef.current);const pool=shuffle(WORDS).slice(0,10);setGame({pool,idx:0,playerHP:100,enemyHP:500,score:0,streak:0,maxStreak:0,phase:"q",opts:getOptions(pool[0]),selected:null,timeLeft:40,finished:false,xpEarned:0});setFloats([]);},[]);
+  const startGame=useCallback(()=>{
+    clearInterval(timerRef.current);
+    const src=gameUnit.lesson!=="ALL"
+      ?WORDS.filter(w=>w.unit===gameUnit.lesson)
+      :gameUnit.part!=="ALL"
+        ?WORDS.filter(w=>UNIT_PART[w.unit]===gameUnit.part)
+        :WORDS;
+    const base=src.length>=4?src:WORDS;
+    const pool=shuffle(base).slice(0,Math.min(10,base.length));
+    setGame({pool,idx:0,playerHP:100,enemyHP:500,score:0,streak:0,maxStreak:0,phase:"q",opts:getOptions(pool[0]),selected:null,timeLeft:40,finished:false,xpEarned:0});
+    setFloats([]);
+  },[gameUnit]);
   useEffect(()=>{if(!game||game.phase!=="q"||game.finished){clearInterval(timerRef.current);return;}clearInterval(timerRef.current);timerRef.current=setInterval(()=>setGame(g=>{if(!g||g.phase!=="q")return g;if(g.timeLeft<=1){clearInterval(timerRef.current);return{...g,timeLeft:0,playerHP:Math.max(0,g.playerHP-18),streak:0,phase:"timeout"};}return{...g,timeLeft:g.timeLeft-1};}),1000);return()=>clearInterval(timerRef.current);},[game?.idx,game?.phase]);
   const handleGA=opt=>{
     if(!game||game.phase!=="q")return;
@@ -2445,6 +2478,37 @@ export default function App(){
             ))}
           </div>
         </div>}
+
+        {/* Unit selector */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+          <div style={{fontSize:13,color:C.gold,fontWeight:"bold",marginBottom:10}}>📚 選擇複習單元</div>
+          <div style={{overflowX:"auto",paddingBottom:6}}>
+            <div style={{display:"flex",gap:6,width:"max-content"}}>
+              <button onClick={()=>setGameUnit({part:"ALL",lesson:"ALL"})} style={{...pill(gameUnit.part==="ALL"?C.gold:C.textDim,11),cursor:"pointer",padding:"5px 12px",fontWeight:gameUnit.part==="ALL"?"bold":"normal"}}>全部</button>
+              {PARTS.filter(p=>WORDS.some(w=>UNIT_PART[w.unit]===p.id||w.unit===p.id)).map(p=>(
+                <button key={p.id} onClick={()=>setGameUnit({part:p.id,lesson:"ALL"})} style={{...pill(gameUnit.part===p.id?C.gold:C.textDim,11),cursor:"pointer",padding:"5px 12px",fontWeight:gameUnit.part===p.id?"bold":"normal"}}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+          {gameUnit.part!=="ALL"&&(()=>{
+            const ap=PARTS.find(p=>p.id===gameUnit.part);
+            if(!ap||ap.lessons.length===0)return null;
+            return(
+              <div style={{overflowX:"auto",marginTop:8,paddingBottom:4}}>
+                <div style={{display:"flex",gap:6,width:"max-content"}}>
+                  <button onClick={()=>setGameUnit(u=>({...u,lesson:"ALL"}))} style={{...pill(gameUnit.lesson==="ALL"?C.blue:C.textFaint,10),cursor:"pointer",padding:"4px 10px"}}>全部課</button>
+                  {ap.lessons.map(l=>{const cnt=WORDS.filter(w=>w.unit===l.id).length;if(!cnt)return null;return(
+                    <button key={l.id} onClick={()=>setGameUnit(u=>({...u,lesson:l.id}))} style={{...pill(gameUnit.lesson===l.id?C.blue:C.textFaint,10),cursor:"pointer",padding:"4px 10px",fontWeight:gameUnit.lesson===l.id?"bold":"normal"}}>{l.label}({cnt})</button>
+                  );})}
+                </div>
+              </div>
+            );
+          })()}
+          <div style={{fontSize:11,color:C.textDim,marginTop:8}}>
+            {(()=>{const cnt=gameUnit.lesson!=="ALL"?WORDS.filter(w=>w.unit===gameUnit.lesson).length:gameUnit.part!=="ALL"?WORDS.filter(w=>UNIT_PART[w.unit]===gameUnit.part).length:WORDS.length;return`共 ${cnt} 個單字，本局抽取 ${Math.min(10,cnt)} 題`;})()}
+          </div>
+        </div>
+
         <button style={{...btn("linear-gradient(135deg,#f0c040,#ff8c00)","#000"),width:"100%",padding:"16px",fontSize:18,borderRadius:14,letterSpacing:1}} onClick={startGame}>⚔️ 開始戰鬥！</button>
       </div>);
     }
@@ -2550,43 +2614,58 @@ export default function App(){
       {/* Question or Result */}
       {game.phase==="timeout"?(
         <div>
-          <div style={{background:"linear-gradient(135deg,#2a1515,#1b1f32)",border:`2px solid ${C.red}`,borderRadius:14,padding:"20px",marginBottom:14,textAlign:"center"}}>
-            <div style={{color:C.red,fontSize:18,fontWeight:"bold",marginBottom:8}}>⏰ 時間到！ -25 HP</div>
-            <div style={{fontSize:30,fontWeight:"bold",color:C.text}}>{word.word}</div>
-            <div style={{color:C.gold,fontSize:17,marginTop:6}}>{word.zh}</div>
+          <div style={{background:"linear-gradient(135deg,#2a1515,#1b1f32)",border:`2px solid ${C.red}`,borderRadius:14,padding:"18px 16px",marginBottom:14}}>
+            <div style={{color:C.red,fontSize:17,fontWeight:"bold",marginBottom:10,textAlign:"center"}}>⏰ 時間到！ -25 HP</div>
+            <div style={{fontSize:15,lineHeight:2,marginBottom:6}}>{highlightWord(word.ex,word.word)}</div>
+            {word.exZh&&<div style={{fontSize:13,color:C.blue,opacity:0.9,lineHeight:1.7,marginBottom:6}}>{word.exZh}</div>}
+            <div style={{fontSize:12,color:C.textDim}}>正確答案：<span style={{color:C.gold,fontWeight:"bold"}}>{word.word}</span> · {word.zh}</div>
           </div>
           <button style={{...btn("linear-gradient(135deg,#f0c040,#ff8c00)","#000"),width:"100%",padding:"14px",fontSize:16,borderRadius:12}} onClick={nextGW}>繼續戰鬥 →</button>
         </div>
       ):game.phase==="q"?(
         <div>
-          <div style={{background:"linear-gradient(135deg,#1b1f32,#252a45)",border:`1px solid ${C.borderHi}`,borderRadius:14,padding:"24px 20px",marginBottom:14,textAlign:"center"}}>
-            {unit&&<div style={{marginBottom:8}}><span style={pill(C.blue,11)}>{unit.label} {unit.zh}</span></div>}
-            <div style={{fontSize:36,fontWeight:"900",color:C.text,marginBottom:6,letterSpacing:1}}>{word.word}</div>
-            <div style={{fontSize:14,color:C.textDim}}>{word.ph}</div>
+          <div style={{background:"linear-gradient(135deg,#1b1f32,#252a45)",border:`1px solid ${C.borderHi}`,borderRadius:14,padding:"18px 16px",marginBottom:14}}>
+            {unit&&<div style={{marginBottom:10,textAlign:"center"}}><span style={pill(C.blue,11)}>{unit.label} {unit.zh}</span></div>}
+            <div style={{fontSize:12,color:C.textDim,marginBottom:10,textAlign:"center",letterSpacing:1}}>選出空格中的正確單字</div>
+            <div style={{fontSize:16,color:C.text,lineHeight:2.2,marginBottom:10}}>
+              {(()=>{const parts=makeBlank(word.ex,word.word).split('______');return parts.map((p,i)=>i<parts.length-1
+                ?<React.Fragment key={i}>{p}<span style={{color:C.gold,fontWeight:"900",fontSize:18,borderBottom:`2px solid ${C.gold}`,padding:"0 6px",letterSpacing:2}}>______</span></React.Fragment>
+                :<React.Fragment key={i}>{p}</React.Fragment>);})()}
+            </div>
+            <div style={{fontSize:12,color:C.blue,opacity:0.85,textAlign:"right"}}>💡 {word.zh}</div>
           </div>
           {game.opts.map((opt,i)=>{
             const colors=["#5ba8f5","#3ddb7e","#f0c040","#a78bfa"];
-            return(<button key={opt.id} onClick={()=>handleGA(opt)} style={{display:"block",width:"100%",background:`${colors[i]}12`,border:`1px solid ${colors[i]}44`,borderRadius:12,marginBottom:10,padding:"14px 18px",cursor:"pointer",textAlign:"left",color:C.text,fontSize:16,fontFamily:"Georgia,serif",transition:"all 0.15s"}}>
-              <span style={{color:colors[i],fontWeight:"bold",marginRight:12,fontSize:14}}>{["A","B","C","D"][i]}</span>{opt.zh}
+            return(<button key={opt.id} onClick={()=>handleGA(opt)} style={{display:"block",width:"100%",background:`${colors[i]}12`,border:`1px solid ${colors[i]}44`,borderRadius:12,marginBottom:10,padding:"12px 16px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"Georgia,serif",transition:"all 0.15s"}}>
+              <span style={{color:colors[i],fontWeight:"bold",marginRight:10,fontSize:13}}>{["A","B","C","D"][i]}</span>
+              <span style={{fontSize:16,fontWeight:"bold"}}>{opt.word}</span>
+              <span style={{fontSize:12,color:C.textDim,marginLeft:8}}>{opt.ph}</span>
             </button>);
           })}
         </div>
       ):(
         <div>
-          <div style={{background:game.selected===word.id?"linear-gradient(135deg,#0f2a1a,#1b1f32)":"linear-gradient(135deg,#2a1215,#1b1f32)",border:`2px solid ${game.selected===word.id?C.green:C.red}`,borderRadius:14,padding:"20px",marginBottom:14,textAlign:"center"}}>
-            {game.selected===word.id?(
-              <div>
-                <div style={{fontSize:20,color:C.green,fontWeight:"bold",marginBottom:6}}>
-                  {game.streak>=3?"💥 爆擊命中！":"⚔️ 命中！"} -{20+game.streak*10}{game.streak>=3?" ×2":""} HP
+          <div style={{background:game.selected===word.id?"linear-gradient(135deg,#0f2a1a,#1b1f32)":"linear-gradient(135deg,#2a1215,#1b1f32)",border:`2px solid ${game.selected===word.id?C.green:C.red}`,borderRadius:14,padding:"18px 16px",marginBottom:14}}>
+            <div style={{textAlign:"center",marginBottom:12}}>
+              {game.selected===word.id?(
+                <div>
+                  <div style={{fontSize:18,color:C.green,fontWeight:"bold",marginBottom:4}}>
+                    {game.streak>=3?"💥 爆擊命中！":"⚔️ 命中！"} -{20+game.streak*10}{game.streak>=3?" ×2":""} HP
+                  </div>
+                  {game.streak>=3&&<div style={{fontSize:12,color:"#a78bfa"}}>🔥 連擊加成！</div>}
                 </div>
-                {game.streak>=3&&<div style={{fontSize:13,color:"#a78bfa",marginBottom:6}}>🔥 連擊加成！</div>}
-              </div>
-            ):(
-              <div style={{fontSize:18,color:C.red,fontWeight:"bold",marginBottom:6}}>💔 答錯了！ -25 HP</div>
-            )}
-            <div style={{fontSize:32,fontWeight:"bold",color:C.text,marginBottom:4}}>{word.word}</div>
-            <div style={{fontSize:20,color:C.gold,marginBottom:6}}>{word.zh}</div>
-            <div style={{fontSize:14,color:C.textDim,lineHeight:1.6}}>{word.en}</div>
+              ):(
+                <div>
+                  <div style={{fontSize:17,color:C.red,fontWeight:"bold",marginBottom:4}}>💔 答錯了！ -25 HP</div>
+                  <div style={{fontSize:13,color:C.textDim}}>正確答案：<span style={{color:C.gold,fontWeight:"bold"}}>{word.word}</span> <span style={{color:C.textDim}}>{word.ph}</span></div>
+                </div>
+              )}
+            </div>
+            <div style={{borderTop:`1px solid ${game.selected===word.id?C.green+"33":C.red+"33"}`,paddingTop:12}}>
+              <div style={{fontSize:15,lineHeight:2,marginBottom:6}}>{highlightWord(word.ex,word.word)}</div>
+              {word.exZh&&<div style={{fontSize:13,color:C.blue,opacity:0.9,lineHeight:1.7,marginBottom:6}}>{word.exZh}</div>}
+              <div style={{fontSize:12,color:C.textDim}}>{word.pos} {word.en}</div>
+            </div>
           </div>
           <button style={{...btn("linear-gradient(135deg,#f0c040,#ff8c00)","#000"),width:"100%",padding:"14px",fontSize:16,borderRadius:12}} onClick={nextGW}>繼續戰鬥 →</button>
         </div>
